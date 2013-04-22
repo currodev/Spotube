@@ -2,3 +2,4 @@ spotube.cfg
 spotify_appkey.key
 tmp
 missing.log
+error.log

@@ -10,6 +10,7 @@ import ConfigParser
 import gdata.youtube
 import gdata.youtube.service
 from time import gmtime, strftime
+import re
 
 from spotify.manager import (SpotifySessionManager, SpotifyContainerManager)
 
@@ -73,7 +74,8 @@ class SpoTubeUI(cmd.Cmd, threading.Thread):
                     print ("%3d %s" % (i, "loading..."))
 
     def do_export_list(self, line):
-        """ Export the content of a playlist to a YouTube playlist """
+        """ export_playlist <number> [<name yt playlist>]
+        Export playlist with <number> to a youtuble playlist called <name yt playlist> """
         if not line:
             print ("Specify a number")
             return
@@ -101,11 +103,13 @@ class SpoTubeUI(cmd.Cmd, threading.Thread):
           yt = YouTube(yt_username, yt_email, yt_password, yt_developer_key, yt_country_code)
           yt.yt_login()
         except Exception as e:
-          print ("[YouTube] " + e.args[0])
-          self.disconnect()
-        if not yt.yt_init_playlist(yt_playlist_name):
-          self.disconnect()
+          print ("[YouTube] [EE] " + e.args[0])
+          debug("EE", sys.exc_info())
           return
+        if not yt.yt_init_playlist(yt_playlist_name):
+          print ("[YouTube] [EE] Can't create playlist " + yt_playlist_name);
+          return
+
         print ("[Spotify] Loading playlist...")
 
         for i, t in enumerate(playlist):
@@ -118,12 +122,52 @@ class SpoTubeUI(cmd.Cmd, threading.Thread):
                   except Exception as e:
                       print ("[YouTube] [EE] Can't add video " + yt_video_id)
                       print (e)
-                      f = open("missing.log", "ab")
-                      time = strftime("%Y-%m-%d %H:%M:%S", gmtime())
-                      f.write(time + " Can't add video " + clean_title(t.artists()[0].name() + " - " + t.name()) + "\r\n")
-                      f.close()
+                      debug("EE", sys.exc_info())
+                      video_title = clean_title(t.artists()[0].name() + " - " + t.name())
+                      add_missing_video(yt_video_id, yt_playlist_name, video_title)
             else:
                 print ("%3d %s" % (i, "loading..."))
+
+    def do_recover(self, line):
+        """ Recover missing videos (retrieved from missing.log) """
+        try:
+            f = open("missing.log", "rb")
+            yt = YouTube(yt_username, yt_email, yt_password, yt_developer_key, yt_country_code)
+            yt.yt_login()
+            for line in f:
+              m = re.search("\[MV\] (?P<video_id>.+) \((?P<playlist_name>\w+)\)", line)
+              if m:
+                try:
+                  playlist_feed = yt.yt_get_playlist_feed(yt_username)
+                  video_id = m.group("video_id")
+                  playlist_name = m.group("playlist_name")
+                  title = yt.yt_get_video_title(video_id)
+                  print ("[YouTube] Adding video " + title + " to playlist " + playlist_name)
+                  for playlist in playlist_feed.entry:
+                    if playlist.title.text == playlist_name:
+                      yt.yt_set_playlist_uri(playlist)
+                      try:
+                        yt.yt_add_video(video_id)
+                      except Exception as e: 
+                        print ("[YouTube] [EE] Can't add video " + video_id)
+                        print (e)
+                        debug("EE", sys.exc_info())
+                        video_title = clean_title(title)
+                        add_missing_video(video_id, playlist_name, video_title)
+                      break
+                    else:
+                      print ("[YouTube] Can't add video. Playlist " + playlist_name + 
+                        " does not exist")                        
+                except Exception as e:
+                  print ("[YouTube] " + str(e.args[0]))
+                  debug("EE", sys.exc_info())
+            f.close()
+        except IOError:
+            print ("[SpoTube] missing.log not found.");
+        except Exception as e:
+            print ("[SpoTube] [EE] " + e.args[0]);
+            debug("EE", sys.exc_info())
+          
 
     def do_shell(self, line):
         self.jukebox.shell()
@@ -131,7 +175,7 @@ class SpoTubeUI(cmd.Cmd, threading.Thread):
     do_ls = do_list
     do_EOF = do_quit
 
-## container calllbacks ##
+## container callbacks ##
 class SpoTubeContainerManager(SpotifyContainerManager):
     def container_loaded(self, c, u):
         container_loaded.set()
@@ -182,7 +226,6 @@ class YouTube():
     print ("[YouTube] Login...")
     self.yt_service = gdata.youtube.service.YouTubeService()
     self.yt_service.developer_key = self.developer_key
-    self.yt_service.client_id = "276164530779.apps.googleusercontent.com"
     self.yt_service.email= self.email
     self.yt_service.password = self.password
     self.yt_service.ProgrammaticLogin()
@@ -206,16 +249,23 @@ class YouTube():
       print ("[YouTube] ERROR")
       return False          
 
+  def yt_get_playlist_feed(self, username):
+    return self.yt_service.GetYouTubePlaylistFeed(username=username)
+
   def yt_query_video(self, query_str):
     print ("--------------------------------------")
     print ("[YouTube] Searching " + query_str)
     query = gdata.youtube.service.YouTubeVideoQuery()
+    query.v = "2"
     query.vq = query_str
+    query.hd = "true"
+    query.safeSearch = "none"
     query.orderby = "relevance"
-    query.restriction = self.country_code
+    query.key = self.developer_key 
+    query.restriction = "89.7.161.31"
     feed = self.yt_service.YouTubeQuery(query)
     if len(feed.entry) == 0:
-        print ("[YouTube] ERROR: No videos found for this track")
+        print ("[YouTube] [EE] No videos found for this track")
         return False
     video_name = feed.entry[0].media.title.text
     print ("[YouTube] Adding " + video_name)
@@ -223,9 +273,18 @@ class YouTube():
     return video_id
 
   def yt_add_video(self, video_id):     
-    playlist_video_entry = self.yt_service.AddPlaylistVideoEntryToPlaylist(self.playlist_uri, video_id)
+    playlist_video_entry = self.yt_service.AddPlaylistVideoEntryToPlaylist(
+      self.playlist_uri, video_id)
     if isinstance(playlist_video_entry, gdata.youtube.YouTubePlaylistVideoEntry):
       print ("[YouTube] Video " + video_id + " added")
+
+  def yt_get_video_title(self, video_id):
+    entry = self.yt_service.GetYouTubeVideoEntry(video_id=video_id)
+    return entry.media.title.text
+
+  def yt_set_playlist_uri(self, playlist):
+    self.playlist_uri = playlist.feed_link[0].href
+    
 
 def get_youtube_credentials():
   return yt_username, yt_email, yt_password, yt_developer_key, yt_country_code
@@ -239,6 +298,18 @@ def clean_title(s):
 def clean_config(s):
   if s.startswith('"') and s.endswith('"'):
     return s[1:-1]
+
+def add_missing_video(video_id, playlist_name, title):
+  f = open("missing.log", "ab")
+  time = strftime("%Y-%m-%d %H:%M:%S", gmtime())
+  f.write(time + " [MV] " + video_id + " (" + playlist_name + 
+    ") Can't add video " + title + "\r\n")
+  f.close()
+
+def debug(level, text):
+  f = open("error.log", "ab")
+  f.write("[" + level + "] " + str(text) + "\n")
+  f.close()
 
 if __name__ == '__main__':
 
