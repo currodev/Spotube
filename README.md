@@ -57,6 +57,15 @@ Run
 
   <code>$ python spotube.py</code>
 
+* List Spotify playlist
+  <code>spotube> ls</code>
+
+* Export Spotify playlist
+  <code>spotube> export_playlist <spotify_playlist_number> [<youtube_playlist_name>]</code>
+
+* Recover missing sons (workaround for too_many_recent_calls bug)
+  <code>spotube> recover</code>
+
 License
 -------
 
