@@ -262,7 +262,7 @@ class YouTube():
     query.safeSearch = "none"
     query.orderby = "relevance"
     query.key = self.developer_key 
-    query.restriction = "89.7.161.31"
+    query.restriction = self.country_code
     feed = self.yt_service.YouTubeQuery(query)
     if len(feed.entry) == 0:
         print ("[YouTube] [EE] No videos found for this track")
