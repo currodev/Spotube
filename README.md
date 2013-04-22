@@ -63,7 +63,7 @@ Run
 * Export Spotify playlist
   <code>spotube> export_playlist <spotify_playlist_number> [<youtube_playlist_name>]</code>
 
-* Recover missing sons (workaround for too_many_recent_calls bug)
+* Recover missing songs (workaround for too_many_recent_calls bug)
   <code>spotube> recover</code>
 
 License
