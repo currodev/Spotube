@@ -1,4 +1,8 @@
 spotube.cfg
 spotify_appkey.key
+<<<<<<< HEAD
 tmp
 missing.log
+=======
+tmp/
+>>>>>>> 40620b56250734d74400bfe4b81b45d4f9d1f134

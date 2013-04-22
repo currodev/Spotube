@@ -112,6 +112,7 @@ class SpoTubeUI(cmd.Cmd, threading.Thread):
             if t.is_loaded():
               query_str = clean_title(t.artists()[0].name() + " " +  t.name())
               yt_video_id = yt.yt_query_video(query_str)
+<<<<<<< HEAD
               try:
                 yt.yt_add_video(yt_video_id)
               except Exception as e:
@@ -121,6 +122,14 @@ class SpoTubeUI(cmd.Cmd, threading.Thread):
                 time = strftime("%Y-%m-%d %H:%M:%S", gmtime())
                 f.write(time + " Can't add video " + clean_title(t.artists()[0].name() + " - " + t.name()) + "\r\n")
                 f.close()
+=======
+              if yt_video_id:
+                  try:
+                      yt.yt_add_video(yt_video_id)
+                  except Exception as e:
+                      print ("[YouTube] [EE] Can't add video " + yt_video_id)
+                      print (e)
+>>>>>>> 40620b56250734d74400bfe4b81b45d4f9d1f134
             else:
                 print ("%3d %s" % (i, "loading..."))
 
@@ -213,6 +222,9 @@ class YouTube():
     query.orderby = "relevance"
     query.restriction = self.country_code
     feed = self.yt_service.YouTubeQuery(query)
+    if len(feed.entry) == 0:
+        print ("[YouTube] ERROR: No videos found for this track")
+        return False
     video_name = feed.entry[0].media.title.text
     print ("[YouTube] Adding " + video_name)
     video_id = feed.entry[0].id.text.split("/")[-1]
