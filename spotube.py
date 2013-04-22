@@ -9,6 +9,7 @@ import string
 import ConfigParser
 import gdata.youtube
 import gdata.youtube.service
+from time import gmtime, strftime
 
 from spotify.manager import (SpotifySessionManager, SpotifyContainerManager)
 
@@ -116,6 +117,10 @@ class SpoTubeUI(cmd.Cmd, threading.Thread):
               except Exception as e:
                 print ("[YouTube] [EE] Can't add video " + yt_video_id)
                 print (e)
+                f = open("missing.log", "ab")
+                time = strftime("%Y-%m-%d %H:%M:%S", gmtime())
+                f.write(time + " Can't add video " + clean_title(t.artists()[0].name() + " - " + t.name()) + "\r\n")
+                f.close()
             else:
                 print ("%3d %s" % (i, "loading..."))
 
@@ -176,6 +181,7 @@ class YouTube():
     print ("[YouTube] Login...")
     self.yt_service = gdata.youtube.service.YouTubeService()
     self.yt_service.developer_key = self.developer_key
+    self.yt_service.client_id = "276164530779.apps.googleusercontent.com"
     self.yt_service.email= self.email
     self.yt_service.password = self.password
     self.yt_service.ProgrammaticLogin()
