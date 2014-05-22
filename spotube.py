@@ -11,8 +11,53 @@ import gdata.youtube
 import gdata.youtube.service
 from time import gmtime, strftime
 import re
-
 from spotify.manager import (SpotifySessionManager, SpotifyContainerManager)
+
+## YOUTUBE API
+import httplib2
+
+from apiclient.discovery import build
+from apiclient.errors import HttpError
+from oauth2client.client import flow_from_clientsecrets
+from oauth2client.file import Storage
+from oauth2client.tools import argparser, run
+
+# The CLIENT_SECRETS_FILE variable specifies the name of a file that contains
+# the OAuth 2.0 information for this application, including its client_id and
+# client_secret. You can acquire an OAuth 2.0 client ID and client secret from
+# the Google Cloud Console at
+# https://cloud.google.com/console.
+# Please ensure that you have enabled the YouTube Data API for your project.
+# For more information about using OAuth2 to access the YouTube Data API, see:
+#   https://developers.google.com/youtube/v3/guides/authentication
+# For more information about the client_secrets.json file format, see:
+#   https://developers.google.com/api-client-library/python/guide/aaa_client_secrets
+
+CLIENT_SECRETS_FILE = "client_secrets.json"
+
+# This variable defines a message to display if the CLIENT_SECRETS_FILE is
+# missing.
+MISSING_CLIENT_SECRETS_MESSAGE = """
+WARNING: Please configure OAuth 2.0
+
+To make this sample run you will need to populate the client_secrets.json file
+found at:
+
+%s
+
+with information from the Cloud Console
+https://cloud.google.com/console
+
+For more information about the client_secrets.json file format, please visit:
+https://developers.google.com/api-client-library/python/guide/aaa_client_secrets
+""" % os.path.abspath(os.path.join(os.path.dirname(__file__),
+    CLIENT_SECRETS_FILE))
+
+# This OAuth 2.0 access scope allows for full read/write access to the
+# authenticated user's account.
+YOUTUBE_SCOPE = "https://www.googleapis.com/auth/youtube"
+YOUTUBE_API_SERVICE_NAME = "youtube"
+YOUTUBE_API_VERSION = "v3"
 
 container_loaded = threading.Event()
 
@@ -74,7 +119,7 @@ class SpoTubeUI(cmd.Cmd, threading.Thread):
                     print ("%3d %s" % (i, "loading..."))
 
     def do_export_list(self, line):
-        """ export_playlist <number> [<name yt playlist>]
+        """ export_playlist <number> [<name yt playlist>] [update]
         Export playlist with <number> to a youtuble playlist called <name yt playlist> """
         if not line:
             print ("Specify a number")
@@ -85,10 +130,13 @@ class SpoTubeUI(cmd.Cmd, threading.Thread):
           yt_playlist_name = get_st_playlist_name()
         else:
           yt_playlist_name = line_a[1]
+        update = 0
+        if len(line_a) == 3 and line_a[2] == "update":
+            update = 1
         try:
             p = int(line)
         except ValueError:
-            print ("that's not a number!")
+            print ("That's not a number!")
             return
         if p < 0 or p > len(self.jukebox.ctr):
             print ("That's out of range!")
@@ -98,15 +146,15 @@ class SpoTubeUI(cmd.Cmd, threading.Thread):
             playlist = self.jukebox.ctr[p]
         else:
             playlist = self.jukebox.starred
-        yt_username, yt_email, yt_password, yt_developer_key, yt_country_code = get_youtube_credentials()
+        yt_country_code = get_country_code()
         try:
-          yt = YouTube(yt_username, yt_email, yt_password, yt_developer_key, yt_country_code)
+          yt = YouTube(yt_country_code)
           yt.yt_login()
         except Exception as e:
           print ("[YouTube] [EE] " + e.args[0])
           debug("EE", sys.exc_info())
           return
-        if not yt.yt_init_playlist(yt_playlist_name):
+        if not yt.yt_init_playlist(yt_playlist_name, update):
           print ("[YouTube] [EE] Can't create playlist " + yt_playlist_name);
           return
 
@@ -114,17 +162,21 @@ class SpoTubeUI(cmd.Cmd, threading.Thread):
 
         for i, t in enumerate(playlist):
             if t.is_loaded():
-              query_str = clean_title(t.artists()[0].name() + " " +  t.name())
-              yt_video_id = yt.yt_query_video(query_str)
-              if yt_video_id:
-                  try:
-                      yt.yt_add_video(yt_video_id)
-                  except Exception as e:
-                      print ("[YouTube] [EE] Can't add video " + yt_video_id)
-                      print (e)
-                      debug("EE", sys.exc_info())
-                      video_title = clean_title(t.artists()[0].name() + " - " + t.name())
-                      add_missing_video(yt_video_id, yt_playlist_name, video_title)
+                query_str = clean_title(t.artists()[0].name() + " " +  t.name())
+                yt_video_id = yt.yt_query_video(query_str)
+                if yt_video_id:
+                    try:
+                        if (update):
+                            if not (yt.yt_search_video_in_playlist(yt_video_id)):
+                                yt.yt_add_video(yt_video_id)
+                        else:
+                            yt.yt_add_video(yt_video_id)
+                    except Exception as e:
+                        print ("[YouTube] [EE] Can't add video " + yt_video_id)
+                        print (e)
+                        debug("EE", sys.exc_info())
+                        video_title = clean_title(t.artists()[0].name() + " - " + t.name())
+                        add_missing_video(yt_video_id, yt_playlist_name, video_title)
             else:
                 print ("%3d %s" % (i, "loading..."))
 
@@ -168,7 +220,6 @@ class SpoTubeUI(cmd.Cmd, threading.Thread):
             print ("[SpoTube] [EE] " + e.args[0]);
             debug("EE", sys.exc_info())
           
-
     def do_shell(self, line):
         self.jukebox.shell()
 
@@ -213,70 +264,114 @@ class SpoTube(SpotifySessionManager):
 
 class YouTube():
 
-  def __init__(self, username, email, password, developer_key, country_code):
-    self.username = username
-    self.email = email
-    self.password = password
-    self.developer_key = developer_key
+  def __init__(self, country_code):
     self.country_code = country_code
     self.yt_service = None
-    self.playlist_uri = None
+    self.playlist_id = None
 
   def yt_login(self):
     print ("[YouTube] Login...")
-    self.yt_service = gdata.youtube.service.YouTubeService()
-    self.yt_service.developer_key = self.developer_key
-    self.yt_service.email= self.email
-    self.yt_service.password = self.password
-    self.yt_service.ProgrammaticLogin()
+    flow = flow_from_clientsecrets(CLIENT_SECRETS_FILE, scope=YOUTUBE_SCOPE,
+      message=MISSING_CLIENT_SECRETS_MESSAGE)
 
-  def yt_init_playlist(self, yt_playlist_name):
+    storage = Storage("%s-oauth2.json" % "spotube")
+    credentials = storage.get()
+    if credentials is None or credentials.invalid:
+      credentials = run(flow, storage)
+
+    self.yt_service = build(YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION,
+      http=credentials.authorize(httplib2.Http()))
+
+  def yt_init_playlist(self, yt_playlist_name, update=0):
     print ("[YouTube] Creating playlist...")
-    playlist_feed = self.yt_service.GetYouTubePlaylistFeed(username=self.username)
+    search_response = self.yt_service.playlists().list(
+        part="snippet",
+        mine="true",
+        ).execute()
 
-    for playlist in playlist_feed.entry:
-      if playlist.title.text == yt_playlist_name: 
-        old_playlist = self.yt_service.DeletePlaylist(playlist.id.text)
-        if isinstance(old_playlist, gdata.youtube.YouTubePlaylistEntry):
-          print ("[YouTube] Old playlist deleted")
-  
-    spotube_playlist = self.yt_service.AddPlaylist(yt_playlist_name, "SpoTube playlist")
-    if isinstance(spotube_playlist, gdata.youtube.YouTubePlaylistEntry):
-      self.playlist_uri = spotube_playlist.feed_link[0].href
-      print ("[YouTube] Playlist " + yt_playlist_name + " created")
-      return True
-    else:
-      print ("[YouTube] ERROR")
-      return False          
+    for search_result in search_response.get("items", []):
+        if (search_result["snippet"]["title"] == yt_playlist_name):
+            if (update):
+                self.playlist_id = search_result["id"]
+                return True
+            self.yt_service.playlists().delete(
+                id=search_result["id"],
+                ).execute()
 
+    playlists_insert_response = self.yt_service.playlists().insert(
+    part="snippet,status",
+    body=dict(
+      snippet=dict(
+        title=yt_playlist_name,
+        description="SpoTube playlist"
+      ),
+      status=dict(
+        privacyStatus="private"
+      )
+    )).execute()
+    self.playlist_id = playlists_insert_response["id"]
+    return True
+    
   def yt_get_playlist_feed(self, username):
     return self.yt_service.GetYouTubePlaylistFeed(username=username)
 
   def yt_query_video(self, query_str):
     print ("--------------------------------------")
     print ("[YouTube] Searching " + query_str)
-    query = gdata.youtube.service.YouTubeVideoQuery()
-    query.v = "2"
-    query.vq = query_str
-    query.hd = "true"
-    query.safeSearch = "none"
-    query.orderby = "relevance"
-    query.key = self.developer_key 
-    query.restriction = self.country_code
-    feed = self.yt_service.YouTubeQuery(query)
-    if len(feed.entry) == 0:
-        print ("[YouTube] [EE] No videos found for this track")
-        return False
-    video_name = feed.entry[0].media.title.text
-    print ("[YouTube] Adding " + video_name)
-    video_id = feed.entry[0].id.text.split("/")[-1]
-    return video_id
+    search_response = self.yt_service.search().list(
+      q=query_str,
+      part="id,snippet",
+      #type="video",
+      safeSearch="none",
+      regionCode=self.country_code,
+      order="relevance",
+      maxResults=10
+    ).execute()
+    totalResults = search_response.get("pageInfo")["totalResults"]
+    if totalResults > 0:
+      i=0
+      firstResultName = ""
+      firstResultId = ""
+      for search_result in search_response.get("items", []):
+        if i == 0:
+          firstResultName = search_result["snippet"]["title"]
+          firstResultId = search_result["id"]["videoId"]
+        if search_result["snippet"]["channelTitle"].endswith("VEVO"):
+          print ("[YouTube] Adding " + search_result["snippet"]["title"])
+          return search_result["id"]["videoId"]
+        i+=1
+      print ("[YouTube] Adding " + firstResultName)
+      return firstResultId
+    else:
+      print ("[YouTube] [EE] No video found for this track")
+      return False
 
-  def yt_add_video(self, video_id):     
-    playlist_video_entry = self.yt_service.AddPlaylistVideoEntryToPlaylist(
-      self.playlist_uri, video_id)
-    if isinstance(playlist_video_entry, gdata.youtube.YouTubePlaylistVideoEntry):
-      print ("[YouTube] Video " + video_id + " added")
+  def yt_search_video_in_playlist(self, video_id):
+    search_video_request=self.yt_service.playlistItems().list(
+        part="snippet",
+        playlistId=self.playlist_id,
+        videoId=video_id,
+        ).execute()
+    totalResults = search_video_request.get("pageInfo")["totalResults"]
+    if totalResults > 0:
+        print("[YouTube] Video already in playlist")
+        return True
+    return False
+
+  def yt_add_video(self, video_id):
+    add_video_request=self.yt_service.playlistItems().insert(
+    part="snippet",
+    body={
+      'snippet': {
+        'playlistId': self.playlist_id, 
+        'resourceId': {
+          'kind': 'youtube#video',
+          'videoId': video_id
+        }
+                #'position': 0
+      }
+    }).execute()
+    print ("[YouTube] Video " + video_id + " added")
 
   def yt_get_video_title(self, video_id):
     entry = self.yt_service.GetYouTubeVideoEntry(video_id=video_id)
@@ -286,8 +381,8 @@ class YouTube():
     self.playlist_uri = playlist.feed_link[0].href
     
 
-def get_youtube_credentials():
-  return yt_username, yt_email, yt_password, yt_developer_key, yt_country_code
+def get_country_code():
+  return yt_country_code
 
 def get_st_playlist_name():
   return st_playlist_name
@@ -319,10 +414,6 @@ if __name__ == '__main__':
   st_playlist_name = clean_config(config.get("spotube", "playlist_name"))
   sp_username = clean_config(config.get("spotify", "username"))
   sp_password = clean_config(config.get("spotify", "password"))
-  yt_username = clean_config(config.get("youtube", "username"))
-  yt_email = clean_config(config.get("youtube", "email"))
-  yt_password = clean_config(config.get("youtube", "password"))
-  yt_developer_key = clean_config(config.get("youtube", "developer_key"))
   yt_country_code = clean_config(config.get("youtube", "country_code"))
 
   session_m = SpoTube(sp_username, sp_password, True)
