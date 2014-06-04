@@ -14,8 +14,7 @@ Dependencies
 * GData (Python API Google)
 
 * Spotify Premium Account
-* YouTube Developer Key (it's free)
-
+* Google OAuth 2.0 Client ID
 
 Installation
 ------------
@@ -42,8 +41,9 @@ Installation
  * You will need to request an application key at the developer website http://developer.spotify.com/ before being able to run it.
  * Place **spotify_appkey.key** in the same folder that spotube.py
 
-* YouTube Developer Key
-  * Get one at https://code.google.com/apis/youtube/dashboard/
+* Google OAuth 2.0 Client ID
+ * https://cloud.google.com/console
+ * Create a web application and download client secrets file.
 
 Configuration
 -------------
@@ -61,10 +61,7 @@ Run
   <code>spotube> ls</code>
 
 * Export Spotify playlist
-  <code>spotube> export_playlist <spotify_playlist_number> [<youtube_playlist_name>]</code>
-
-* Recover missing songs (workaround for too_many_recent_calls bug)
-  <code>spotube> recover</code>
+  <code>spotube> export_playlist <spotify_playlist_number> [<youtube_playlist_name>] [update]</code>
 
 License
 -------

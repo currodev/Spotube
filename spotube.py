@@ -162,7 +162,7 @@ class SpoTubeUI(cmd.Cmd, threading.Thread):
 
         for i, t in enumerate(playlist):
             if t.is_loaded():
-                query_str = clean_title(t.artists()[0].name() + " " +  t.name())
+                query_str = t.artists()[0].name() + " " +  t.name()
                 yt_video_id = yt.yt_query_video(query_str)
                 if yt_video_id:
                     try:
@@ -175,50 +175,9 @@ class SpoTubeUI(cmd.Cmd, threading.Thread):
                         print ("[YouTube] [EE] Can't add video " + yt_video_id)
                         print (e)
                         debug("EE", sys.exc_info())
-                        video_title = clean_title(t.artists()[0].name() + " - " + t.name())
-                        add_missing_video(yt_video_id, yt_playlist_name, video_title)
+                        video_title = t.artists()[0].name() + " - " + t.name()
             else:
                 print ("%3d %s" % (i, "loading..."))
-
-    def do_recover(self, line):
-        """ Recover missing videos (retrieved from missing.log) """
-        try:
-            f = open("missing.log", "rb")
-            yt = YouTube(yt_username, yt_email, yt_password, yt_developer_key, yt_country_code)
-            yt.yt_login()
-            for line in f:
-              m = re.search("\[MV\] (?P<video_id>.+) \((?P<playlist_name>\w+)\)", line)
-              if m:
-                try:
-                  playlist_feed = yt.yt_get_playlist_feed(yt_username)
-                  video_id = m.group("video_id")
-                  playlist_name = m.group("playlist_name")
-                  title = yt.yt_get_video_title(video_id)
-                  print ("[YouTube] Adding video " + title + " to playlist " + playlist_name)
-                  for playlist in playlist_feed.entry:
-                    if playlist.title.text == playlist_name:
-                      yt.yt_set_playlist_uri(playlist)
-                      try:
-                        yt.yt_add_video(video_id)
-                      except Exception as e: 
-                        print ("[YouTube] [EE] Can't add video " + video_id)
-                        print (e)
-                        debug("EE", sys.exc_info())
-                        video_title = clean_title(title)
-                        add_missing_video(video_id, playlist_name, video_title)
-                      break
-                    else:
-                      print ("[YouTube] Can't add video. Playlist " + playlist_name + 
-                        " does not exist")                        
-                except Exception as e:
-                  print ("[YouTube] " + str(e.args[0]))
-                  debug("EE", sys.exc_info())
-            f.close()
-        except IOError:
-            print ("[SpoTube] missing.log not found.");
-        except Exception as e:
-            print ("[SpoTube] [EE] " + e.args[0]);
-            debug("EE", sys.exc_info())
           
     def do_shell(self, line):
         self.jukebox.shell()
@@ -329,19 +288,23 @@ class YouTube():
     ).execute()
     totalResults = search_response.get("pageInfo")["totalResults"]
     if totalResults > 0:
-      i=0
-      firstResultName = ""
-      firstResultId = ""
-      for search_result in search_response.get("items", []):
-        if i == 0:
-          firstResultName = search_result["snippet"]["title"]
-          firstResultId = search_result["id"]["videoId"]
-        if search_result["snippet"]["channelTitle"].endswith("VEVO"):
-          print ("[YouTube] Adding " + search_result["snippet"]["title"])
-          return search_result["id"]["videoId"]
-        i+=1
-      print ("[YouTube] Adding " + firstResultName)
-      return firstResultId
+      try:
+        i=0
+        firstResultName = ""
+        firstResultId = ""
+        for search_result in search_response.get("items", []):
+          if i == 0:
+            firstResultName = search_result["snippet"]["title"]
+            firstResultId = search_result["id"]["videoId"]
+          if search_result["snippet"]["channelTitle"].endswith("VEVO"):
+            print ("[YouTube] Adding " + search_result["snippet"]["title"])
+            return search_result["id"]["videoId"]
+          i+=1
+        print ("[YouTube] Adding " + firstResultName)
+        return firstResultId
+      except:
+        print ("[YouTube] [EE] No video found for this track")
+        return False
     else:
       print ("[YouTube] [EE] No video found for this track")
       return False
@@ -387,19 +350,13 @@ def get_country_code():
 def get_st_playlist_name():
   return st_playlist_name
 
+# @deprecated
 def clean_title(s):
   return filter(lambda x: x in string.printable, s)
 
 def clean_config(s):
   if s.startswith('"') and s.endswith('"'):
     return s[1:-1]
-
-def add_missing_video(video_id, playlist_name, title):
-  f = open("missing.log", "ab")
-  time = strftime("%Y-%m-%d %H:%M:%S", gmtime())
-  f.write(time + " [MV] " + video_id + " (" + playlist_name + 
-    ") Can't add video " + title + "\r\n")
-  f.close()
 
 def debug(level, text):
   f = open("error.log", "ab")
