@@ -61,7 +61,7 @@ Run
   <code>spotube> ls</code>
 
 * Export Spotify playlist
-  <code>spotube> export_playlist <spotify_playlist_number> [<youtube_playlist_name>] [update]</code>
+  <code>spotube> export_playlist spotify_playlist_number [youtube_playlist_name] [update]</code>
 
 License
 -------
